@@ -67,31 +67,40 @@ _unit setVelocity [0,0,0];
 _unit setVectorDir _dir;
 _unit switchMove "";
 
-[{
-    params ["_unit", "_aircraft"];
-    private _isFreeFall = getUnitFreefallInfo _unit select 0;
-    if (_isFreeFall) then {
-        _unit moveInCargo _aircraft;
-    };
-},[_unit, _aircraft], 1] call CBA_fnc_waitAndExecute;
-
 [{ _this allowDamage true; }, _unit, 2] call CBA_fnc_waitAndExecute;
 
 [{
     params ["_args", "_pfID"];
-    _args params ["_unit", "_aircraft", "_dummy", "_height", "_timeStandSafe"];
+    _args params ["_unit", "_aircraft", "_dummy", "_standPos", "_height", "_timeStandSafe"];
 
-    private _alt = getPosASL _unit # 2;
+    // Already back inside the aircraft (e.g. rescued or squeezed back into a seat) - nothing to do
+    if (vehicle _unit == _aircraft) exitWith {
+        [_pfID] call CBA_fnc_removePerFrameHandler;
+        _unit setUnitFreefallHeight -1;
+    };
 
-    if (vehicle _unit != _aircraft && {_alt > _height}) exitWith {}; // Safe
+    private _unitPos = getPosASL _unit;
+
+    // Max distance a correctly-standing unit is expected to drift from the dummy position.
+    private _maxStandDist = 3;
+
+    // The dummy is stationary, so a correctly-standing unit stays right on _standPos.
+    // During the safe window, being flung away from it in ANY direction (out the side,
+    // up, or down - not just below the floor) means the engine squeezed the unit out.
+    if (CBA_missionTime < _timeStandSafe) exitWith {
+        if (_unitPos distance _standPos > _maxStandDist) then {
+            // Unit got squeezed out - rescue it back into the aircraft
+            [_pfID] call CBA_fnc_removePerFrameHandler;
+            _unit setUnitFreefallHeight -1;
+            _unit moveInCargo _aircraft;
+        };
+    };
+
+    // Past the safe window: dropping below the ramp is a genuine jump.
+    if (_unitPos # 2 > _height) exitWith {}; // Still standing, safe
 
     [_pfID] call CBA_fnc_removePerFrameHandler;
     _unit setUnitFreefallHeight -1;
-
-    // Unit got squeezed out
-    if (CBA_missionTime < _timeStandSafe) exitWith {
-        _unit moveInCargo _aircraft;
-    };
 
     // Return to flying aircraft for free fall
     private _velAircraft = velocity _aircraft;
@@ -100,7 +109,6 @@ _unit switchMove "";
     private _dir = _aircraft vectorModelToWorldVisual (_dummy vectorWorldToModelVisual (vectorDir _unit));
     private _vel_unit = velocity _unit # 2;
     private _velRelease = (_velAircraft vectorMultiply 0.9) vectorAdd [0, 0, _vel_unit];
-
 
     _unit setPosASL _pos;
     _unit setVectorDir _dir;
@@ -117,4 +125,4 @@ _unit switchMove "";
     [_aircraft, _unit] call ffr_main_fnc_aiJump;
 
     [{_this allowDamage true;}, _unit, 0.5] call CBA_fnc_waitAndExecute;
-}, 0, [_unit, _aircraft, _dummy, _pos # 2 - 2, CBA_missionTime + 5]] call CBA_fnc_addPerFrameHandler;
+}, 0, [_unit, _aircraft, _dummy, _pos, _pos # 2 - 2, CBA_missionTime + 5]] call CBA_fnc_addPerFrameHandler;
